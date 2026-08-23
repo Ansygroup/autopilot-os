@@ -90,10 +90,25 @@ if __name__ == "__main__":
 
     ap = argparse.ArgumentParser()
     ap.add_argument("--loop", type=int, default=0, help="run every N minutes (0 = once)")
-    ap.add_argument("--approve", action="store_true", help="approve all pending guarded actions, then exit")
+    ap.add_argument("--approve", action="store_true", help="approve + EXECUTE all pending guarded actions, then exit")
+    ap.add_argument("--status", action="store_true", help="list pending guarded actions awaiting approval, then exit")
     args = ap.parse_args()
 
     guard = Guard(ROOT)
+
+    if args.status:
+        n = guard.pending_count()
+        print("PENDING APPROVALS: %d" % n)
+        if n:
+            for i, l in enumerate(open(guard.pending_file, encoding="utf-8"), 1):
+                if not l.strip():
+                    continue
+                r = json.loads(l)
+                if not r.get("approved"):
+                    print("  %d. [%s] %s" % (i, r.get("action"), r.get("human_label")))
+        else:
+            print("Nothing pending. Run without flags to start a new cycle.")
+        sys.exit(0)
 
     if args.approve:
         n = guard.approve_all()
@@ -105,10 +120,10 @@ if __name__ == "__main__":
         while True:
             res = run_once(guard)
             print("\nRESULT:", json.dumps(res, ensure_ascii=False))
-            print("PENDING:", guard.pending_count(), "(halted; run with --approve to release)")
+            print("PENDING:", guard.pending_count(), "(halted; run --status to view, --approve to release)")
             print("sleeping %d min...\n" % args.loop)
             time.sleep(args.loop * 60)
     else:
         res = run_once(guard)
         print("\nRESULT:", json.dumps(res, ensure_ascii=False))
-        print("PENDING APPROVALS:", guard.pending_count(), "(autonomous loop halts here until approved)")
+        print("PENDING APPROVALS:", guard.pending_count(), "(run --status to view, --approve to release)")

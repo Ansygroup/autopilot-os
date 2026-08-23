@@ -97,7 +97,7 @@ if __name__ == "__main__":
 
     if args.approve:
         n = guard.approve_all()
-        print("Approved %d pending actions." % n)
+        print("Approved + EXECUTED %d guarded actions (publish/outreach/sell)." % n)
         sys.exit(0)
 
     if args.loop:

@@ -137,9 +137,10 @@ if __name__ == "__main__":
     ap.add_argument("--approve", action="store_true", help="approve + EXECUTE all pending guarded actions, then exit")
     ap.add_argument("--status", action="store_true", help="list pending guarded actions awaiting approval, then exit")
     ap.add_argument("--report", action="store_true", help="run one cycle, then write memory/cron_last.md summary")
+    ap.add_argument("--auto", action="store_true", help="AUTO mode: publish+outreach run unattended; sell still needs human")
     args = ap.parse_args()
 
-    guard = Guard(ROOT)
+    guard = Guard(ROOT, auto_mode=args.auto)
 
     if args.report:
         res = run_once(guard)

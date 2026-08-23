@@ -11,12 +11,13 @@ import os, json, datetime, subprocess, sys
 
 
 class Guard:
-    def __init__(self, root):
+    def __init__(self, root, auto_mode=False):
         self.root = root
         self.dir = os.path.join(root, "memory")
         os.makedirs(self.dir, exist_ok=True)
         self.pending_file = os.path.join(self.dir, "pending_approvals.jsonl")
         self.state_file = os.path.join(self.dir, "state.json")
+        self.auto_mode = auto_mode
         self.state = self._load_state()
 
     def _load_state(self):
@@ -31,7 +32,17 @@ class Guard:
         json.dump(self.state, open(self.state_file, "w"), indent=2)
 
     def require(self, action, payload, human_label):
-        """Record a guarded action; the loop must halt until a human approves it."""
+        """Record a guarded action; the loop must halt until a human approves it.
+
+        In AUTO mode, execute immediately EXCEPT for 'sell' (charging money to
+        strangers is a legal/financial line we never cross without a human) —
+        'publish' (GitHub) and 'outreach' (IG post) run unattended because they
+        are reversible and carry no financial liability.
+        """
+        if self.auto_mode and action != "sell":
+            result = _execute({"action": action, "payload": payload, "human_label": human_label}, self.root)
+            print("  [AUTO] '%s' -> %s" % (human_label, result))
+            return
         rec = {
             "action": action,
             "human_label": human_label,

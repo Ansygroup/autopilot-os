@@ -31,10 +31,49 @@ def outreach(plan):
     else:
         out.append("IG: ~/ig-growth-engine not found")
 
-    # LinkedIn — GATED (no token on this machine; the live URL is the real
-    # customer touchpoint, so organic + IG reach covers acquisition for now)
-    if not os.getenv("LINKEDIN_ACCESS_TOKEN"):
-        out.append("GATED: LINKEDIN_ACCESS_TOKEN needed to DM/connect on LinkedIn (organic+IG used instead)")
+    # LinkedIn — post to your own feed (real outreach) when a token is present.
+    # NOTE: a standard access token posts to YOUR feed (visible to your
+    # network) — that's the legitimate, available action. DM-to-strangers
+    # requires the Marketing/partnership API + member selection, which is
+    # not available, so we don't attempt it.
+    tok = os.getenv("LINKEDIN_ACCESS_TOKEN")
+    if not tok:
+        out.append("GATED: set LINKEDIN_ACCESS_TOKEN to auto-post the offer to your LinkedIn feed (organic+IG used instead)")
     else:
-        out.append("LinkedIn: ready (token present)")
+        try:
+            import urllib.request, json as _json
+            # resolve your own LinkedIn person URN (urn:li:person:XXXX)
+            req = urllib.request.Request(
+                "https://api.linkedin.com/v2/userinfo",
+                headers={"Authorization": "Bearer %s" % tok})
+            me = _json.load(urllib.request.urlopen(req, timeout=20))
+            sub = me.get("sub")
+            if not sub:
+                raise RuntimeError("no sub in userinfo: %s" % me)
+            person_urn = "urn:li:person:%s" % sub
+            post = {
+                "author": person_urn,
+                "lifecycleState": "PUBLISHED",
+                "specificContent": {
+                    "com.linkedin.ugc.ShareContent": {
+                        "shareCommentary": {
+                            "text": "Autopilot pick: %s — premium offer%s" % (
+                                title, ("\n%s" % live if live else " — link in bio."))
+                        },
+                        "shareMediaCategory": "NONE",
+                    }
+                },
+                "visibility": {"com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC"},
+            }
+            pr = urllib.request.Request(
+                "https://api.linkedin.com/v2/ugcPosts",
+                data=_json.dumps(post).encode("utf-8"),
+                headers={"Authorization": "Bearer %s" % tok,
+                         "Content-Type": "application/json",
+                         "X-Restli-Protocol-Version": "2.0.0"},
+                method="POST")
+            resp = urllib.request.urlopen(pr, timeout=20)
+            out.append("LinkedIn: posted to your feed (offer: %s%s)" % (title, (" | live: " + live if live else "")))
+        except Exception as e:
+            out.append("LinkedIn: post failed: %s" % e)
     return " | ".join(out)

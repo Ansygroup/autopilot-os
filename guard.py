@@ -96,6 +96,8 @@ def _publish(plan, root):
     if not os.path.isdir(repo_dir):
         return "SKIP: no build dir for '%s'" % plan.get("title")
     try:
+        # keep published repo clean: drop the Codex debug log
+        open(os.path.join(repo_dir, ".gitignore"), "w", encoding="utf-8").write("codex.log\n")
         subprocess.run(["git", "init", "-q"], cwd=repo_dir, check=True)
         subprocess.run(["git", "add", "-A"], cwd=repo_dir, check=True)
         subprocess.run(["git", "commit", "-q", "-m", "Autopilot MVP: %s" % plan.get("title")],

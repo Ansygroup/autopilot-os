@@ -55,8 +55,8 @@ def run_once(guard):
     for o in opps:
         print("  -", o.get("title"), "|", o.get("channel"), "|", o.get("price_range"))
 
-    # dedupe: never re-propose titles already proposed/executed
-    seen = set(guard.state.get("seen", []))
+    # dedupe: never re-propose titles already proposed/executed (recency window)
+    seen = list(guard.state.get("seen", []))
 
     print("\n=== PLAN ===")
     p = plan(opps, seen)
@@ -91,8 +91,11 @@ def run_once(guard):
     guard.state["cycles"] = guard.state.get("cycles", 0) + 1
     guard.state["last_opps"] = [o.get("title") for o in opps]
     # record chosen as seen so it is not re-proposed next cycle
-    seen.add(p["title"])
-    guard.state["seen"] = list(seen)
+    if p["title"] not in seen:
+        seen.append(p["title"])
+    # rolling window: keep only the last 20 seen titles so old opportunities
+    # become re-eligible after a while (prevents permanent loop starvation)
+    guard.state["seen"] = seen[-20:]
     guard.save()
 
     return {"stage": "learn", "chosen": p["title"], "pending": guard.pending_count()}

@@ -4,13 +4,18 @@
 Guarded by the supervisor: only invoked AFTER PUBLISH/OUTREACH/SELL are approved.
 Codex is already authenticated on this machine (provider: openai).
 
-Hardened: streams output to a log file (avoids subprocess pipe deadlock with
-Codex's interactive session) and polls with a hard timeout.
+24/7-hardened:
+- streams output to a log file (avoids subprocess pipe deadlock with Codex's TTY session)
+- short hard timeout (default 45s): if Codex is unreachable/expired it fails FAST
+  instead of hanging the hourly cron for 9 minutes
+- on any failure/timeout, kills the Codex process tree so no zombie holds codex.log
+  (which previously caused 'device busy' on cleanup)
+- honest local fallback -> the autonomous loop still yields a deployable artifact
 """
-import os, subprocess, datetime, time, json
+import os, subprocess, time, signal
 
 
-def build(plan, workdir=None, timeout=540):
+def build(plan, workdir=None, timeout=45):
     """Generate an MVP repo for the chosen opportunity using Codex."""
     if not plan or not plan.get("title"):
         return "GATED: no plan to build"
@@ -29,38 +34,54 @@ def build(plan, workdir=None, timeout=540):
         "Write the files into the current working directory. Keep it production-quality, no stubs."
     )
 
-    # Stream to log file (no stdout pipe -> no deadlock with Codex's TTY session).
-    with open(log, "w", encoding="utf-8") as lf:
-        try:
+    try:
+        with open(log, "w", encoding="utf-8") as lf:
             proc = subprocess.Popen(
                 ["codex", "exec", "--skip-git-repo-check", prompt],
                 cwd=out_dir,
                 stdout=lf,
                 stderr=subprocess.STDOUT,
             )
-        except FileNotFoundError:
-            return _local_mvp(plan, out_dir) + " (codex CLI missing -> local fallback)"
+    except FileNotFoundError:
+        return _local_mvp(plan, out_dir) + " (codex CLI missing -> local fallback)"
 
-        # Poll with hard timeout
-        step = 5
-        waited = 0
-        while proc.poll() is None:
-            if waited >= timeout:
-                proc.kill()
-                return "BUILD TIMEOUT after %ds (see %s)" % (timeout, log)
-            time.sleep(step)
-            waited += step
+    # Poll with a SHORT hard timeout so an expired/unreachable Codex fails fast.
+    step = 3
+    waited = 0
+    while proc.poll() is None:
+        if waited >= timeout:
+            _kill_tree(proc.pid)
+            return _local_mvp(plan, out_dir) + " (BUILD TIMEOUT %ds -> local fallback)" % timeout
+        time.sleep(step)
+        waited += step
 
     # Codex succeeded?
     files = [f for f in os.listdir(out_dir) if not f.startswith(".") and f != "codex.log"]
     if proc.returncode == 0 and files:
         return "BUILT '%s' -> %s (%d files): %s" % (title, out_dir, len(files), ", ".join(files))
 
-    # Codex failed (e.g. 401 expired token) -> honest local fallback so the
-    # autonomous loop still yields a deployable artifact.
-    if proc.returncode != 0:
-        return _local_mvp(plan, out_dir) + " (codex rc=%d -> local fallback)" % proc.returncode
-    return _local_mvp(plan, out_dir) + " (codex produced no files -> local fallback)"
+    # Codex failed (e.g. 401 expired token) -> honest local fallback and clean up.
+    _kill_tree(proc.pid)  # ensure no zombie holds codex.log
+    return _local_mvp(plan, out_dir) + " (codex rc=%d -> local fallback)" % proc.returncode
+
+
+def _kill_tree(pid):
+    """Kill a process and its descendants (Codex spawns children that hold files)."""
+    try:
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"],
+                           capture_output=True, timeout=10)
+        else:
+            import psutil
+            parent = psutil.Process(pid)
+            for child in parent.children(recursive=True):
+                child.kill()
+            parent.kill()
+    except Exception:
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except Exception:
+            pass
 
 
 def _local_mvp(plan, out_dir):

@@ -33,7 +33,16 @@ def api_login():
 
 
 def create_repo(name, private=False):
+    """Create a GitHub repo. On a name clash (422) retry with a short
+    timestamp suffix so AUTO publishing never fails on an existing repo."""
+    import time
     t = _token()
     if not t:
         raise RuntimeError("no stored github credential")
-    return _api(t, "/user/repos", {"name": name, "private": private, "auto_init": False}, "POST")
+    try:
+        return _api(t, "/user/repos", {"name": name, "private": private, "auto_init": False}, "POST")
+    except urllib.error.HTTPError as e:
+        if e.code == 422:  # name already exists
+            suffix = str(int(time.time()))[-5:]
+            return _api(t, "/user/repos", {"name": "%s-%s" % (name, suffix), "private": private, "auto_init": False}, "POST")
+        raise

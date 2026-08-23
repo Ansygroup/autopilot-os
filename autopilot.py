@@ -56,11 +56,16 @@ def run_once(guard):
     print("chosen:", p["title"] if p else None)
 
     print("\n=== BUILD ===")
-    # gated: needs a coding agent (codex/claude) configured
-    if not os.getenv("CODEX_API_KEY") and not os.getenv("CLAUDE_API_KEY"):
-        print("GATED: set CODEX_API_KEY or CLAUDE_API_KEY to enable autonomous build")
+    # Real autonomous coding via Codex (authenticated on this machine).
+    if not p:
+        print("BUILD skipped: no plan")
     else:
-        print("build agent ready (not invoked in v1)")
+        from agents import build as build_agent
+        try:
+            result = build_agent.build(p)
+            print("  ", result)
+        except Exception as e:
+            print("  BUILD ERROR:", e)
 
     # --- GUARDED stages: write pending approval, halt ---
     print("\n=== PUBLISH (GUARDED) ===")
@@ -81,7 +86,29 @@ def run_once(guard):
 
 
 if __name__ == "__main__":
+    import time, argparse
+
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--loop", type=int, default=0, help="run every N minutes (0 = once)")
+    ap.add_argument("--approve", action="store_true", help="approve all pending guarded actions, then exit")
+    args = ap.parse_args()
+
     guard = Guard(ROOT)
-    res = run_once(guard)
-    print("\nRESULT:", json.dumps(res, ensure_ascii=False))
-    print("PENDING APPROVALS:", guard.pending_count(), "(autonomous loop halts here until approved)")
+
+    if args.approve:
+        n = guard.approve_all()
+        print("Approved %d pending actions." % n)
+        sys.exit(0)
+
+    if args.loop:
+        print("24/7 loop: every %d min. Ctrl-C to stop." % args.loop)
+        while True:
+            res = run_once(guard)
+            print("\nRESULT:", json.dumps(res, ensure_ascii=False))
+            print("PENDING:", guard.pending_count(), "(halted; run with --approve to release)")
+            print("sleeping %d min...\n" % args.loop)
+            time.sleep(args.loop * 60)
+    else:
+        res = run_once(guard)
+        print("\nRESULT:", json.dumps(res, ensure_ascii=False))
+        print("PENDING APPROVALS:", guard.pending_count(), "(autonomous loop halts here until approved)")

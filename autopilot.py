@@ -87,6 +87,12 @@ def run_once(guard):
     print("\n=== PUBLISH (GUARDED) ===")
     guard.require("publish", payload, "publish repo / deploy")
 
+    # Capture the live URL this cycle's publish produced (if any) so the
+    # SAME cycle's outreach/sell carry the current offer's live link.
+    if os.path.exists(live_file):
+        live = open(live_file, encoding="utf-8").read().strip()
+        payload["live_url"] = live
+
     print("=== OUTREACH (GUARDED) ===")
     guard.require("outreach", payload, "message real people")
 

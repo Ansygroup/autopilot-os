@@ -19,10 +19,14 @@ from agents.scout import scout
 MODEL = os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini")
 
 
-def plan(opps):
-    """Pick best opportunity + draft an MVP plan (pure logic, no external call)."""
+def plan(opps, seen=None):
+    """Pick best UNSEEN opportunity + draft an MVP plan (pure logic, no external call).
+    `seen` is a set of titles already proposed/executed (dedupe across cycles)."""
     if not opps:
         return None
+    candidates = [o for o in opps if o.get("title") not in (seen or set())]
+    if not candidates:
+        return None  # everything this cycle was already proposed before
     # score: prefer low effort + high price
     def score(o):
         effort = {"low": 3, "med": 2, "high": 1}.get(o.get("effort", "med"), 2)
@@ -31,7 +35,7 @@ def plan(opps):
         if any(c.isdigit() for c in pr):
             price = 2
         return effort + price
-    best = max(opps, key=score)
+    best = max(candidates, key=score)
     return {
         "title": best.get("title"),
         "mvp": "Landing page + Stripe checkout + auto-DM sequence",
@@ -51,21 +55,27 @@ def run_once(guard):
     for o in opps:
         print("  -", o.get("title"), "|", o.get("channel"), "|", o.get("price_range"))
 
+    # dedupe: never re-propose titles already proposed/executed
+    seen = set(guard.state.get("seen", []))
+
     print("\n=== PLAN ===")
-    p = plan(opps)
-    print("chosen:", p["title"] if p else None)
+    p = plan(opps, seen)
+    if not p:
+        print("chosen: (none new — all current opportunities already proposed)")
+        guard.state["cycles"] = guard.state.get("cycles", 0) + 1
+        guard.state["last_opps"] = [o.get("title") for o in opps]
+        guard.save()
+        return {"stage": "learn", "chosen": None, "pending": guard.pending_count(), "no_new": True}
+    print("chosen:", p["title"])
 
     print("\n=== BUILD ===")
     # Real autonomous coding via Codex (authenticated on this machine).
-    if not p:
-        print("BUILD skipped: no plan")
-    else:
-        from agents import build as build_agent
-        try:
-            result = build_agent.build(p)
-            print("  ", result)
-        except Exception as e:
-            print("  BUILD ERROR:", e)
+    from agents import build as build_agent
+    try:
+        result = build_agent.build(p)
+        print("  ", result)
+    except Exception as e:
+        print("  BUILD ERROR:", e)
 
     # --- GUARDED stages: write pending approval, halt ---
     print("\n=== PUBLISH (GUARDED) ===")
@@ -80,9 +90,12 @@ def run_once(guard):
     print("\n=== LEARN ===")
     guard.state["cycles"] = guard.state.get("cycles", 0) + 1
     guard.state["last_opps"] = [o.get("title") for o in opps]
+    # record chosen as seen so it is not re-proposed next cycle
+    seen.add(p["title"])
+    guard.state["seen"] = list(seen)
     guard.save()
 
-    return {"stage": "learn", "chosen": p["title"] if p else None, "pending": guard.pending_count()}
+    return {"stage": "learn", "chosen": p["title"], "pending": guard.pending_count()}
 
 
 def _write_report(guard, res):

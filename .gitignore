@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+memory/pending_approvals.jsonl
+memory/state.json
+.env

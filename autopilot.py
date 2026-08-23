@@ -85,6 +85,34 @@ def run_once(guard):
     return {"stage": "learn", "chosen": p["title"] if p else None, "pending": guard.pending_count()}
 
 
+def _write_report(guard, res):
+    """Write a human-readable summary of the latest cycle to memory/cron_last.md."""
+    import datetime
+    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+    lines = ["# autopilot-os — last cycle", "", "**Time:** %s" % now, ""]
+    lines.append("**Chosen opportunity:** %s" % (res.get("chosen") or "none"))
+    lines.append("**Pending approvals:** %d" % guard.pending_count())
+    lines.append("")
+    lines.append("## Awaiting your approval")
+    n = guard.pending_count()
+    if n:
+        for i, l in enumerate(open(guard.pending_file, encoding="utf-8"), 1):
+            if not l.strip():
+                continue
+            r = json.loads(l)
+            if not r.get("approved"):
+                lines.append("  %d. [%s] %s" % (i, r.get("action"), r.get("human_label")))
+    else:
+        lines.append("  _nothing pending_")
+    lines.append("")
+    lines.append("## How to act")
+    lines.append("```")
+    lines.append("python autopilot.py --status   # view pending")
+    lines.append("python autopilot.py --approve  # EXECUTE all pending (publish/outreach/sell)")
+    lines.append("```")
+    open(os.path.join(guard.dir, "cron_last.md"), "w", encoding="utf-8").write("\n".join(lines) + "\n")
+
+
 if __name__ == "__main__":
     import time, argparse
 
@@ -92,9 +120,16 @@ if __name__ == "__main__":
     ap.add_argument("--loop", type=int, default=0, help="run every N minutes (0 = once)")
     ap.add_argument("--approve", action="store_true", help="approve + EXECUTE all pending guarded actions, then exit")
     ap.add_argument("--status", action="store_true", help="list pending guarded actions awaiting approval, then exit")
+    ap.add_argument("--report", action="store_true", help="run one cycle, then write memory/cron_last.md summary")
     args = ap.parse_args()
 
     guard = Guard(ROOT)
+
+    if args.report:
+        res = run_once(guard)
+        _write_report(guard, res)
+        print("Cycle done. Report -> memory/cron_last.md")
+        sys.exit(0)
 
     if args.status:
         n = guard.pending_count()

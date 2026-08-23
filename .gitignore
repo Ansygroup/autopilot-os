@@ -3,5 +3,6 @@ __pycache__/
 memory/pending_approvals.jsonl
 memory/state.json
 memory/cron_last.md
+memory/last_live_url.txt
 builds/
 .env

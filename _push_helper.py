@@ -39,10 +39,23 @@ def create_repo(name, private=False):
     t = _token()
     if not t:
         raise RuntimeError("no stored github credential")
+    repo = None
     try:
-        return _api(t, "/user/repos", {"name": name, "private": private, "auto_init": False}, "POST")
+        repo = _api(t, "/user/repos", {"name": name, "private": private, "auto_init": False}, "POST")
     except urllib.error.HTTPError as e:
         if e.code == 422:  # name already exists
             suffix = str(int(time.time()))[-5:]
-            return _api(t, "/user/repos", {"name": "%s-%s" % (name, suffix), "private": private, "auto_init": False}, "POST")
-        raise
+            repo = _api(t, "/user/repos", {"name": "%s-%s" % (name, suffix), "private": private, "auto_init": False}, "POST")
+        else:
+            raise
+    return repo
+
+
+def enable_pages(full_name):
+    """Enable GitHub Pages (public, served from main:/) and return the live URL.
+    Must be called AFTER the branch is pushed (branch must exist)."""
+    t = _token()
+    if not t:
+        raise RuntimeError("no stored github credential")
+    pages = _api(t, "/repos/%s/pages" % full_name, {"source": {"branch": "main", "path": "/"}}, "POST")
+    return pages.get("html_url")

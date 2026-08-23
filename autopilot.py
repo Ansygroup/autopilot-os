@@ -77,15 +77,21 @@ def run_once(guard):
     except Exception as e:
         print("  BUILD ERROR:", e)
 
-    # --- GUARDED stages: write pending approval, halt ---
+    live_file = os.path.join(guard.dir, "last_live_url.txt")
+    live = guard.state.get("last_live_url")
+    if not live and os.path.exists(live_file):
+        live = open(live_file, encoding="utf-8").read().strip()
+    payload = {"plan": p, "live_url": live}
+
+    # --- GUARDED stages: write pending approval, halt (or auto-exec in AUTO) ---
     print("\n=== PUBLISH (GUARDED) ===")
-    guard.require("publish", {"plan": p}, "publish repo / deploy")
+    guard.require("publish", payload, "publish repo / deploy")
 
     print("=== OUTREACH (GUARDED) ===")
-    guard.require("outreach", {"plan": p}, "message real people")
+    guard.require("outreach", payload, "message real people")
 
     print("=== SELL (GUARDED) ===")
-    guard.require("sell", {"plan": p}, "charge money via Stripe")
+    guard.require("sell", payload, "charge money via Stripe")
 
     print("\n=== LEARN ===")
     guard.state["cycles"] = guard.state.get("cycles", 0) + 1
@@ -96,6 +102,8 @@ def run_once(guard):
     # rolling window: keep only the last 20 seen titles so old opportunities
     # become re-eligible after a while (prevents permanent loop starvation)
     guard.state["seen"] = seen[-20:]
+    if live:
+        guard.state["last_live_url"] = live
     guard.save()
 
     return {"stage": "learn", "chosen": p["title"], "pending": guard.pending_count()}

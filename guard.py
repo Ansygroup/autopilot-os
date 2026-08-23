@@ -103,10 +103,11 @@ def _execute(rec, root):
     if action == "publish":
         return _publish(plan, root)
     if action == "outreach":
-        return _outreach(plan)
+        return _outreach(payload)  # full payload carries live_url
     if action == "sell":
-        # ANSY buy link is already live; nothing secret to do but confirm.
-        return "ANSY store link live (no charge action taken)"
+        live = payload.get("live_url") or ""
+        base = "ANSY store link live (no charge action taken)"
+        return (base + " | MVP live: %s" % live) if live else base
     return "unknown action: %s" % action
 
 
@@ -127,23 +128,44 @@ def _publish(plan, root):
         # create repo + push via stored credential (owner Ansygroup)
         import _push_helper as ph
         repo = ph.create_repo(slug)
-        subprocess.run(["git", "remote", "add", "origin", repo["clone_url"]], cwd=repo_dir, check=True)
+        # add/set remote, push
+        has_remote = subprocess.run(
+            ["git", "remote", "get-url", "origin"], cwd=repo_dir, capture_output=True).returncode == 0
+        if has_remote:
+            subprocess.run(["git", "remote", "set-url", "origin", repo["clone_url"]], cwd=repo_dir, check=True)
+        else:
+            subprocess.run(["git", "remote", "add", "origin", repo["clone_url"]], cwd=repo_dir, check=True)
         subprocess.run(["git", "branch", "-M", "main"], cwd=repo_dir, check=True)
         subprocess.run(["git", "push", "-u", "origin", "main"], cwd=repo_dir, check=True)
+        # enable GitHub Pages AFTER push (branch must exist) so the offer is
+        # reachable at a public URL — a real customer touchpoint.
+        pages = repo.get("pages_url")
+        if not pages:
+            try:
+                pages = ph.enable_pages(repo.get("full_name"))
+            except Exception:
+                pages = None
+        if pages:
+            # record the live URL on the repo root so customers can reach it
+            open(os.path.join(repo_dir, "PAGES_URL.txt"), "w", encoding="utf-8").write(
+                "LIVE: %s\n" % pages)
+            # surface the live URL for the later sell/outreach stages
+            try:
+                live_file = os.path.join(os.path.dirname(os.path.dirname(repo_dir)), "memory", "last_live_url.txt")
+                open(live_file, "w", encoding="utf-8").write(pages)
+            except Exception:
+                pass
+            return "PUBLISHED -> %s  |  LIVE -> %s" % (repo["html_url"], pages)
         return "PUBLISHED -> %s" % repo["html_url"]
     except Exception as e:
         return "PUBLISH FAILED: %s" % e
 
 
-def _outreach(plan):
-    """Fire the IG publish (real traffic) via ~/ig-growth-engine."""
-    ig_dir = os.path.expanduser("~/ig-growth-engine")
-    if not os.path.isdir(ig_dir):
-        return "SKIP: ~/ig-growth-engine not found"
-    subprocess.Popen(
-        ["python", os.path.join(ig_dir, "publish_day.py")],
-        cwd=ig_dir,
-        stdout=open(os.path.join(ig_dir, "autopilot_ig.log"), "a", encoding="utf-8"),
-        stderr=subprocess.STDOUT,
-    )
-    return "IG publish triggered (offer: %s)" % plan.get("title")
+def _outreach(payload):
+    """Fire the IG publish (real traffic) via ~/ig-growth-engine.
+    `payload` is the full guarded payload (carries live_url + plan)."""
+    try:
+        from agents import outreach as outreach_agent
+        return outreach_agent.outreach(payload.get("plan") or {})
+    except Exception as e:
+        return "IG outreach error: %s" % e

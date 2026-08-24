@@ -12,9 +12,16 @@ import os
 ANSY_BUY_LINK = "https://buy.stripe.com/eVqdR9fIT1ED12I20g0Jq06"
 
 
-def sell(plan):
+def sell(plan_or_payload):
+    """Accept either the full guarded payload ({plan, live_url}) or a bare plan."""
+    if isinstance(plan_or_payload, dict) and "action" in plan_or_payload and "plan" in plan_or_payload:
+        payload = plan_or_payload
+        plan = payload.get("plan") or {}
+    else:
+        payload = {}
+        plan = plan_or_payload or {}
     title = plan.get("title", "offer") if plan else "offer"
-    live = (plan or {}).get("live_url") or ""
+    live = (plan.get("live_url") or payload.get("live_url") or "")
     out = []
     # Immediate: the offer points at your live store.
     out.append("LIVE: offer '%s' -> ANSY store %s" % (title, ANSY_BUY_LINK))

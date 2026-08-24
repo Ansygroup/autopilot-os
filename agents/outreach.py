@@ -9,10 +9,18 @@ All outbound contact is gated by the supervisor's GUARD before it fires.
 import os, subprocess, datetime
 
 
-def outreach(plan):
+def outreach(plan_or_payload):
+    """Accept either the full guarded payload ({plan, live_url}) or a bare plan
+    dict — live_url may live at either level depending on the caller."""
     out = []
+    if "action" in plan_or_payload and "plan" in plan_or_payload:
+        payload = plan_or_payload
+        plan = payload.get("plan") or {}
+    else:
+        payload = {}
+        plan = plan_or_payload or {}
     title = plan.get("title", "offer") if plan else "offer"
-    live = (plan or {}).get("live_url") or ""
+    live = (plan.get("live_url") or payload.get("live_url") or "")
 
     # IG — LIVE: ask ig-growth-engine to publish a leadership/offer card.
     ig_dir = os.path.expanduser("~/ig-growth-engine")

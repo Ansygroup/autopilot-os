@@ -6,9 +6,12 @@ import subprocess, json, urllib.request, base64, os
 
 def _token():
     # git credential store -> find github.com entry
+    # timeout + GIT_TERMINAL_PROMPT=0: never hang the 24/7 cron loop waiting
+    # on an interactive credential prompt in a headless shell.
+    env = dict(os.environ, GIT_TERMINAL_PROMPT="0")
     out = subprocess.run(["git", "credential", "fill"],
                          input=b"protocol=https\nhost=github.com\n",
-                         capture_output=True).stdout.decode()
+                         capture_output=True, timeout=30, env=env).stdout.decode()
     for line in out.splitlines():
         if line.startswith("password="):
             return line.split("=", 1)[1]

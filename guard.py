@@ -72,26 +72,42 @@ class Guard:
         return sum(1 for l in open(self.pending_file, encoding="utf-8") if l.strip() and not json.loads(l).get("approved"))
 
     def approve_all(self):
-        """Mark all pending approved, then EXECUTE each guarded action for real."""
+        """Mark all pending approved, then EXECUTE each guarded action for real.
+
+        Crash-safe: the pending file is rewritten INCREMENTALLY after each
+        action (and exceptions are caught per-record), so a failure mid-loop
+        can never cause an already-executed side effect (e.g. a GitHub repo
+        push) to run a second time on the next --approve.
+        """
         if not os.path.exists(self.pending_file):
             print("Nothing pending.")
             return 0
         n = 0
+        # read ALL records first and close the handle BEFORE writing anything:
+        # rewriting the file mid-read truncates it under the open reader
+        # (Windows) and corrupts iteration.
+        with open(self.pending_file, encoding="utf-8") as f:
+            records = [l for l in f if l.strip()]
         lines = []
-        for l in open(self.pending_file, encoding="utf-8"):
-            if not l.strip():
-                continue
+        for l in records:
             r = json.loads(l)
-            if not r.get("approved"):
-                r["approved"] = True
-                n += 1
-            if not r.get("executed"):
-                result = _execute(r, self.root)
-                r["executed"] = True
-                r["exec_result"] = result
-                print("  [EXEC] %s -> %s" % (r["action"], result))
+            try:
+                if not r.get("approved"):
+                    r["approved"] = True
+                    n += 1
+                if not r.get("executed"):
+                    result = _execute(r, self.root)
+                    r["executed"] = True
+                    r["exec_result"] = result
+                    print("  [EXEC] %s -> %s" % (r["action"], result))
+            except Exception as e:
+                # record the failure but keep the record approved+unexecuted
+                # so a human can retry without re-running earlier actions
+                r["exec_error"] = str(e)
+                print("  [EXEC FAILED] %s -> %s" % (r["action"], e))
             lines.append(json.dumps(r, ensure_ascii=False))
-        open(self.pending_file, "w", encoding="utf-8").write("\n".join(lines) + "\n")
+            # incremental commit: everything before this line is final
+            open(self.pending_file, "w", encoding="utf-8").write("\n".join(lines) + "\n")
         return n
 
 
@@ -105,9 +121,11 @@ def _execute(rec, root):
     if action == "outreach":
         return _outreach(payload)  # full payload carries live_url
     if action == "sell":
-        live = payload.get("live_url") or ""
-        base = "ANSY store link live (no charge action taken)"
-        return (base + " | MVP live: %s" % live) if live else base
+        try:
+            from agents import sell as sell_agent
+            return sell_agent.sell(payload)
+        except Exception as e:
+            return "SELL error: %s" % e
     return "unknown action: %s" % action
 
 
@@ -166,6 +184,6 @@ def _outreach(payload):
     `payload` is the full guarded payload (carries live_url + plan)."""
     try:
         from agents import outreach as outreach_agent
-        return outreach_agent.outreach(payload.get("plan") or {})
+        return outreach_agent.outreach(payload)
     except Exception as e:
         return "IG outreach error: %s" % e

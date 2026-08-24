@@ -1,0 +1,23 @@
+# Task: Read-only architecture review of autopilot-os
+
+You are doing a READ-ONLY review. Do NOT edit any files.
+
+## Context
+This repo is `autopilot-os`: a fully-autonomous 24/7 revenue operator (guarded).
+Loop: SCOUT (web search for paid problems via OpenRouter) -> PLAN -> BUILD (Codex CLI, fallback local landing page) -> PUBLISH [GUARDED] -> OUTREACH [GUARDED] -> SELL [GUARDED] -> LEARN.
+All outbound actions halt for human approval (`--approve`). State in `memory/state.json` + `memory/pending_approvals.jsonl`.
+
+## Your job
+Read: `autopilot.py`, `guard.py`, `agents/` (scout, build, outreach, sell), `_push_helper.py`, and README.md.
+
+Report (max ~40 lines):
+1. Top 3 structural weaknesses (e.g., hand-rolled JSON parsing, unvalidated state writes, missing crash recovery).
+2. For each weakness: which file/function, and a one-line fix direction referencing these patterns:
+   - Pydantic IO schemas for LLM outputs (atomic-agents style)
+   - Schema-validated State with delta-only commits (ADK state.py style)
+   - Spec-driven PLAN stage emitting spec.md/plan.md/tasks.md before BUILD (spec-kit style)
+3. Anything that looks like a live bug or guardrail hole (critical — flag loudly).
+
+## Constraints
+- READ-ONLY: no file edits, no commits.
+- Do not run the pipeline; static reading only.
